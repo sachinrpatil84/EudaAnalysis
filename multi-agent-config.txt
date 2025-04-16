@@ -1,0 +1,192 @@
+# Cloud.ai Multi-Agent System Configuration
+# Trading System Requirements Generator
+
+version: "1.0"
+
+system:
+  name: "Trading System Requirements Generator"
+  description: "A multi-agent system that processes new exchange requirements and generates detailed requirement documents"
+
+vector_databases:
+  - name: exchange_requirements_db
+    type: "vector_db"
+    connection:
+      uri: "${VECTOR_DB_URI}"
+      credentials:
+        api_key: "${VECTOR_DB_API_KEY}"
+    collections:
+      - name: "exchange_requirements_pdfs"
+        description: "Collection of embedded PDFs containing new exchange specifications"
+      - name: "trading_system_specifications"
+        description: "Collection of current trading system information and previously implemented changes"
+
+agents:
+  - name: ExchangeRequirementProcessor
+    role: "Exchange Requirement Analyzer"
+    description: "Analyzes new exchange requirements from embedded PDF documents"
+    goal: "Extract, process, and structure new exchange specification changes for comparison with existing implementations"
+    backstory: >
+      You are a specialized financial exchange analyst with deep expertise in market structure requirements.
+      Your purpose is to carefully analyze regulatory documents and exchange specifications to identify
+      changes from previous versions. You're meticulous about details and understand the critical nature
+      of compliance in trading systems.
+    model:
+      type: "llm"
+      name: "cloud-ai-analytical-model"
+      parameters:
+        temperature: 0.1
+        max_tokens: 4000
+    memory:
+      type: "conversation_buffer"
+      max_tokens: 8000
+    tools:
+      - vector_db_reader:
+          collection: "exchange_requirements_pdfs"
+          description: "Access to embedded PDF documents containing exchange specifications"
+      - document_analyzer:
+          description: "Extracts structured data from regulatory and exchange specification documents"
+      - change_tracker:
+          description: "Identifies changes between current and previous specification versions"
+    output_format:
+      content_type: "application/json"
+      schema:
+        type: object
+        properties:
+          exchange_name:
+            type: string
+          document_date:
+            type: string
+            format: date
+          requirement_changes:
+            type: array
+            items:
+              type: object
+              properties:
+                section:
+                  type: string
+                requirement_id:
+                  type: string
+                previous_state:
+                  type: string
+                new_state:
+                  type: string
+                impact_level:
+                  type: string
+                  enum: ["High", "Medium", "Low"]
+    communication:
+      output_to:
+        - agent: "TradingSystemAnalyst"
+        - channel: "direct_message"
+      response_format: "json"
+
+  - name: TradingSystemAnalyst
+    role: "Trading System Requirement Generator"
+    description: "Analyzes trading system impacts and creates requirement documents"
+    goal: "Generate comprehensive requirement documents based on new exchange specifications and existing system capabilities"
+    backstory: >
+      You are an experienced trading systems analyst who understands both the technical infrastructure
+      and business requirements of financial trading platforms. Your expertise lies in translating technical
+      exchange specifications into actionable system requirements, identifying impacts across various
+      components, and establishing clear success criteria for implementation teams.
+    model:
+      type: "llm"
+      name: "cloud-ai-analytical-model"
+      parameters:
+        temperature: 0.2
+        max_tokens: 8000
+    memory:
+      type: "conversation_buffer"
+      max_tokens: 16000
+    tools:
+      - vector_db_reader:
+          collection: "trading_system_specifications"
+          description: "Access to current trading system architecture and capabilities"
+      - impact_analyzer:
+          description: "Determines system impacts based on requirement changes"
+      - requirement_generator:
+          description: "Creates structured requirement documents following company standards"
+    input_sources:
+      - agent: "ExchangeRequirementProcessor"
+        input_type: "json"
+        description: "Structured exchange requirement changes"
+    output_format:
+      content_type: "text/markdown"
+      template: |
+        # Requirement Document: {exchange_name} Specification Changes
+        
+        ## Problem Statement
+        {problem_statement}
+        
+        ## Systems Impacted
+        {systems_impacted}
+        
+        ## Requirement Details
+        {requirement_details}
+        
+        ## Success Criteria
+        {success_criteria}
+        
+        ## Implementation Considerations
+        {implementation_considerations}
+    communication:
+      output_to:
+        - destination: "user_interface"
+        - format: "markdown"
+      response_format: "requirement_document"
+
+workflows:
+  - name: "requirements_generation"
+    description: "Process new exchange requirements and generate documents"
+    trigger:
+      type: "data_change"
+      source: "exchange_requirements_pdfs"
+      condition: "new_document_added"
+    steps:
+      - agent: "ExchangeRequirementProcessor"
+        action: "analyze_new_requirements"
+        input:
+          source: "trigger.document_id"
+        output:
+          destination: "TradingSystemAnalyst.input"
+      - agent: "TradingSystemAnalyst"
+        action: "generate_requirement_document"
+        input:
+          source: "ExchangeRequirementProcessor.output"
+        output:
+          destination: "user"
+    notification:
+      on_completion:
+        - channel: "email"
+          recipients: ["${USER_EMAIL}"]
+          template: "New requirement document generated for {exchange_name}"
+
+security:
+  authentication:
+    type: "oauth2"
+    provider: "${AUTH_PROVIDER}"
+  authorization:
+    data_access:
+      - role: "system_admin"
+        collections: ["exchange_requirements_pdfs", "trading_system_specifications"]
+        permissions: ["read", "write"]
+      - role: "analyst"
+        collections: ["exchange_requirements_pdfs", "trading_system_specifications"]
+        permissions: ["read"]
+
+monitoring:
+  logging:
+    level: "info"
+    destinations:
+      - type: "cloud_logging"
+        project: "${PROJECT_ID}"
+  metrics:
+    collection_interval: "1m"
+    destinations:
+      - type: "prometheus"
+        endpoint: "${PROMETHEUS_ENDPOINT}"
+  alerts:
+    - name: "workflow_failure"
+      condition: "workflow.status == 'failed'"
+      notification:
+        channel: "slack"
+        destination: "${SLACK_WEBHOOK}"
