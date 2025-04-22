@@ -1,0 +1,185 @@
+---
+# CrewAI Configuration for Confluence-Powered Requirements Bot
+
+# Tool definitions
+tools:
+  - name: search_confluence_tool
+    description: "Search for relevant information in Confluence pages based on semantic similarity"
+    module_path: "tools.confluence_tools"
+    class_name: "SearchConfluenceTool"
+    args:
+      vector_db_connection_string: "${VECTOR_DB_CONNECTION_STRING}"
+      confidence_threshold: 0.7
+
+# Agent definitions
+agents:
+  - id: requirements_analyzer
+    role: "Requirements Analyzer"
+    goal: "Analyze new requirements against historical data in Confluence"
+    backstory: >
+      You are an expert requirements analyst with deep knowledge of the organization's 
+      systems and previous requirements. Your job is to find patterns and similarities between new 
+      requirements and past documentation.
+    verbose: true
+    allow_delegation: true
+    tools:
+      - search_confluence_tool
+    llm:
+      provider: "openai"
+      model: "gpt-4o"
+      temperature: 0.2
+
+  - id: gap_identifier
+    role: "Gap Identifier"
+    goal: "Identify differences between new requirements and historical data"
+    backstory: >
+      You specialize in identifying what makes new requirements unique or different 
+      from previous ones. You excel at spotting innovations, changes, and potential challenges.
+    verbose: true
+    allow_delegation: true
+    llm:
+      provider: "openai"
+      model: "gpt-4o"
+      temperature: 0.3
+
+  - id: impact_assessment
+    role: "Impact Assessment Specialist"
+    goal: "Determine which systems or modules will be affected by the new requirements"
+    backstory: >
+      With your deep understanding of system architecture and dependencies, you can 
+      accurately predict which components will be impacted by proposed changes and assess 
+      the level of effort and risk involved.
+    verbose: true
+    allow_delegation: true
+    llm:
+      provider: "openai"
+      model: "gpt-4o"
+      temperature: 0.3
+
+  - id: document_generator
+    role: "Requirements Document Generator"
+    goal: "Create comprehensive, well-structured requirements documents"
+    backstory: >
+      You are skilled at compiling technical information into clear, organized 
+      documents that all stakeholders can understand. You know how to present complex 
+      information in an accessible format.
+    verbose: true
+    allow_delegation: false
+    llm:
+      provider: "openai"
+      model: "gpt-4o"
+      temperature: 0.4
+
+# Task definitions
+tasks:
+  - id: analysis_task
+    description: >
+      Analyze the user-submitted requirement against existing Confluence content.
+      
+      1. Use the search_confluence_tool to find similar historical requirements
+      2. Identify patterns, terminology, and common characteristics
+      3. Extract information about previously impacted modules
+      4. Prepare a structured summary of your findings
+      
+      Input: {requirement_text}
+      
+      Output format:
+      {
+          "similar_requirements": [list of similar requirements with relevance scores],
+          "common_terminology": [key terms that appear in historical requirements],
+          "previously_impacted_modules": [modules affected in similar past requirements],
+          "patterns": [identified patterns in requirement structure or implementation]
+      }
+    expected_output: "A JSON-formatted analysis of the requirement compared to historical data"
+    agent: requirements_analyzer
+
+  - id: gap_identification_task
+    description: >
+      Compare the new requirement with retrieved historical data to identify gaps and differences.
+      
+      Using the analysis from the Requirements Analyzer:
+      1. Highlight what is new or different in the submitted requirement
+      2. Identify gaps between the new requirement and historical implementations
+      3. Note any innovations or novel aspects in the proposed change
+      
+      Input: {analysis_results}
+      
+      Output format:
+      {
+          "new_elements": [aspects not found in historical requirements],
+          "modifications": [changes to existing functionality],
+          "potential_challenges": [areas that might require special attention],
+          "innovation_points": [novel approaches or technologies introduced]
+      }
+    expected_output: "A JSON-formatted gap analysis highlighting differences and innovations"
+    agent: gap_identifier
+    depends_on: analysis_task
+
+  - id: impact_assessment_task
+    description: >
+      Determine which systems or modules will be affected by the new requirement.
+      
+      Based on the gap analysis:
+      1. Identify all components, services, or databases that might be impacted
+      2. Assess the level of impact for each (high, medium, low)
+      3. Note any risk factors or areas of concern
+      4. Estimate implementation complexity
+      
+      Input: {gap_analysis}
+      
+      Output format:
+      {
+          "impacted_systems": [
+              {
+                  "name": "System Name",
+                  "impact_level": "high|medium|low",
+                  "risk_factors": [identified risks],
+                  "implementation_complexity": "high|medium|low"
+              }
+          ],
+          "overall_assessment": "Summary of the overall impact"
+      }
+    expected_output: "A JSON-formatted impact assessment for affected systems"
+    agent: impact_assessment
+    depends_on: gap_identification_task
+
+  - id: document_generation_task
+    description: >
+      Generate a comprehensive requirements document based on all previous analyses.
+      
+      Compile the following into a well-structured markdown document:
+      1. Description of the new requirement
+      2. References to similar past requirements (with Confluence links)
+      3. Summary of gaps and innovations
+      4. List of impacted systems with annotations
+      5. Suggested next steps and considerations
+      
+      Input: 
+      {
+          "original_requirement": "Original requirement text",
+          "analysis_results": "Analysis from Requirements Analyzer",
+          "gap_analysis": "Gap analysis output",
+          "impact_assessment": "System impact assessment"
+      }
+      
+      Output: A complete markdown document with all sections properly formatted
+    expected_output: "A markdown-formatted requirements document"
+    agent: document_generator
+    depends_on: impact_assessment_task
+
+# Crew configuration
+crew:
+  name: "Requirements Analysis Crew"
+  description: "A team of AI agents that analyze requirements against historical data and generate comprehensive documentation"
+  agents:
+    - requirements_analyzer
+    - gap_identifier
+    - impact_assessment
+    - document_generator
+  tasks:
+    - analysis_task
+    - gap_identification_task
+    - impact_assessment_task
+    - document_generation_task
+  process: sequential
+  verbose: 2
